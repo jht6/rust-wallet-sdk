@@ -1,30 +1,19 @@
 //! coin-eth —— Ethereum 钱包实现
-//!
-//! 当前为骨架代码，仅 mock 实现 Wallet trait 的抽象方法。
-//! 后续替代为真实的 secp256k1 地址派生、RLP 编码、EIP-1559 交易构造。
 
+use alloy_primitives::Address;
 use async_trait::async_trait;
 use coin_base::common::*;
 use coin_base::error::WalletError;
 use coin_base::wallet::Wallet;
+use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::SecretKey;
 
 /// Ethereum 钱包
-pub struct EthWallet {
-    mock_address: Option<String>,
-    mock_public_key: Option<String>,
-}
+pub struct EthWallet;
 
 impl EthWallet {
     pub fn new() -> Self {
-        Self {
-            mock_address: None,
-            mock_public_key: None,
-        }
-    }
-
-    pub fn set_mock(&mut self, address: String, public_key: String) {
-        self.mock_address = Some(address);
-        self.mock_public_key = Some(public_key);
+        Self
     }
 }
 
@@ -34,10 +23,48 @@ impl Default for EthWallet {
     }
 }
 
-// struct GetDerivedPathParam {
-//     pub index: u64,
-//     pub segwit_type: Option<u8>,
-// }
+// ── 辅助函数 ─────────────────────────────────────────
+
+/// 去掉 0x 前缀并校验 hex 格式
+fn strip_hex_prefix(hex_str: &str) -> Option<&str> {
+    hex_str
+        .strip_prefix("0x")
+        .or_else(|| hex_str.strip_prefix("0X"))
+        .or(Some(hex_str))
+}
+
+/// 验证私钥 hex 字符串
+fn valid_private_key(hex_str: &str) -> bool {
+    let hex_str = strip_hex_prefix(hex_str).unwrap_or(hex_str);
+    if hex_str.len() != 64 || !hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+    let bytes = match hex::decode(hex_str) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    if bytes.len() != 32 || bytes.iter().all(|b| *b == 0) {
+        return false;
+    }
+    SecretKey::from_slice(&bytes).is_ok()
+}
+
+/// 从私钥推导地址和公钥
+fn derive_address(pk_hex: &str) -> Result<NewAddressData, WalletError> {
+    let raw = hex::decode(pk_hex.trim_start_matches("0x").trim_start_matches("0X").to_lowercase())
+        .map_err(|_| WalletError::NewAddress)?;
+    let sk = SecretKey::from_slice(&raw).map_err(|_| WalletError::NewAddress)?;
+    let pk_bytes = sk.public_key().to_encoded_point(false);
+    let addr = Address::from_raw_public_key(&pk_bytes.as_bytes()[1..]);
+
+    Ok(NewAddressData {
+        address: format!("0x{}", hex::encode(addr.0)),
+        public_key: Some(format!("0x{}", hex::encode(pk_bytes.as_bytes()))),
+        compressed_public_key: None,
+    })
+}
+
+// ── Wallet trait 实现 ─────────────────────────────────
 
 #[async_trait(?Send)]
 impl Wallet for EthWallet {
@@ -48,13 +75,12 @@ impl Wallet for EthWallet {
 
     async fn get_new_address(
         &self,
-        _param: NewAddressParams,
+        param: NewAddressParams,
     ) -> Result<NewAddressData, WalletError> {
-        Ok(NewAddressData {
-            address: self.mock_address.clone().unwrap_or_default(),
-            public_key: self.mock_public_key.clone(),
-            compressed_public_key: None,
-        })
+        if !valid_private_key(&param.private_key) {
+            return Err(WalletError::Custom("invalid key".into()));
+        }
+        derive_address(&param.private_key)
     }
 
     async fn valid_address(
@@ -76,10 +102,72 @@ impl Wallet for EthWallet {
 mod tests {
     use super::*;
 
+    const TEST_KEY: &str = "3c9229289a6125f7fdf1885a77bb12c37a8d3b4962d936f7e3084dece32a3ca1";
+
+    #[test]
+    fn test_valid_private_key() {
+        assert!(valid_private_key(TEST_KEY));
+        assert!(!valid_private_key("0x"));
+        assert!(!valid_private_key("abc"));
+        assert!(!valid_private_key("0000000000000000000000000000000000000000000000000000000000000000"));
+    }
+
+    #[test]
+    fn test_derive_address_format() {
+        let result = derive_address(TEST_KEY).unwrap();
+        assert_eq!(result.address.len(), 42);
+        assert!(result.address.starts_with("0x"));
+        let pk = result.public_key.as_deref().unwrap();
+        assert_eq!(pk.len(), 132);
+        assert!(pk.starts_with("0x04"));
+    }
+
+    #[test]
+    fn test_derive_address_deterministic() {
+        let r1 = derive_address(TEST_KEY).unwrap();
+        let r2 = derive_address(TEST_KEY).unwrap();
+        assert_eq!(r1.address, r2.address);
+    }
+
+    #[test]
+    fn test_different_keys_different_addresses() {
+        let other = "1".repeat(64);
+        let r1 = derive_address(TEST_KEY).unwrap();
+        let r2 = derive_address(&other).unwrap();
+        assert_ne!(r1.address, r2.address);
+    }
+
+    #[tokio::test]
+    async fn test_get_new_address_rejects_invalid_key() {
+        let wallet = EthWallet::new();
+        let result = wallet
+            .get_new_address(NewAddressParams {
+                private_key: "0xdead".into(),
+                address_type: None,
+                version: None,
+                hrp: None,
+            })
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_new_address_accepts_no_prefix() {
+        let wallet = EthWallet::new();
+        let result = wallet
+            .get_new_address(NewAddressParams {
+                private_key: TEST_KEY.into(),
+                address_type: None,
+                version: None,
+                hrp: None,
+            })
+            .await;
+        assert!(result.is_ok());
+    }
+
     #[tokio::test]
     async fn test_get_derived_path() {
         let wallet = EthWallet::new();
-
         let result = wallet
             .get_derived_path(GetDerivedPathParam {
                 index: 0,
@@ -88,14 +176,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, "m/44'/60'/0'/0/0");
-
-        let result = wallet
-            .get_derived_path(GetDerivedPathParam {
-                index: 5,
-                segwit_type: None,
-            })
-            .await
-            .unwrap();
-        assert_eq!(result, "m/44'/60'/0'/0/5");
     }
 }

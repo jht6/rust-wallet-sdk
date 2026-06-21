@@ -28,11 +28,6 @@ impl EthWalletWasm {
     }
 
     #[wasm_bindgen]
-    pub fn set_mock(&mut self, address: String, public_key: String) {
-        self.inner.set_mock(address, public_key);
-    }
-
-    #[wasm_bindgen]
     pub async fn get_new_address(&self, param: JsValue) -> Result<JsValue, JsValue> {
         let params: NewAddressParams =
             serde_wasm_bindgen::from_value(param).map_err(to_js_err)?;

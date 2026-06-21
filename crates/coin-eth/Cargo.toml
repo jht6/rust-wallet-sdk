@@ -8,6 +8,9 @@ description = "Ethereum wallet implementation (pure Rust)"
 coin-base = { path = "../coin-base" }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
+alloy-primitives = { version = "1", features = ["k256"] }
+hex = "0.4"
+k256 = { version = "0.13", features = ["ecdsa"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }
