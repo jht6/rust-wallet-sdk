@@ -1,0 +1,17 @@
+[package]
+name = "coin-sol-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Solana wallet WASM bindings"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+coin-sol = { path = "../coin-sol" }
+coin-base = { path = "../coin-base" }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+serde-wasm-bindgen = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }

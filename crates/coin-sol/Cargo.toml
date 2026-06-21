@@ -1,0 +1,10 @@
+[package]
+name = "coin-sol"
+version = "0.1.0"
+edition = "2021"
+description = "Solana wallet implementation (pure Rust)"
+
+[dependencies]
+coin-base = { path = "../coin-base" }
+async-trait = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,10 @@
+[package]
+name = "coin-base"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-chain wallet SDK core: traits, errors, and common types"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }

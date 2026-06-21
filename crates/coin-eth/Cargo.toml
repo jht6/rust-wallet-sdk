@@ -1,0 +1,13 @@
+[package]
+name = "coin-eth"
+version = "0.1.0"
+edition = "2021"
+description = "Ethereum wallet implementation (pure Rust)"
+
+[dependencies]
+coin-base = { path = "../coin-base" }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
